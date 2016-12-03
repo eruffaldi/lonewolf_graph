@@ -5,6 +5,26 @@ import subprocess, Queue
 import argparse
 import networkx as nx
 
+titles = ["Flight from the Dark","Fire on the Water","The Caverns of Kalte","The Chasm of Doom","Shadow on the Sand","The Kingdoms of Terror","Castle Death"];
+
+def count_dag_paths(ordered,incoming,outgoing,first,last):
+    #reverse array from: vertex index to index
+    invordered = dict([(ordered[i],i) for i in range(0,len(ordered))])
+    lastidx = invordered[last]
+    # paths to last
+    counts = defaultdict(int)
+    counts[last] = 1
+    print ordered
+    for i in range(lastidx-1,-1,-1): # index
+        ni = ordered[i] 
+        q = 0
+        for child in outgoing[ni]:
+            j = invordered[child]
+            if j > i and j <= lastidx:
+                q += counts[child] 
+        counts[ni] = q 
+    return counts
+
 def bfs(graph, start,visited=set()):
     queue = [(start,None)]
     distancefrompath = dict()
@@ -16,6 +36,18 @@ def bfs(graph, start,visited=set()):
             queue.extend([(x,vertex) for x in graph[vertex] - visited])
         else:
             yield (vertex,parent, False)
+
+def makedag(o,i,b):
+    ro = defaultdict(set)
+    ri = defaultdict(set)
+    for k,v in o.iteritems():
+        ro[k] = v.copy()
+    for k,v in i.iteritems():
+        ri[k] = v.copy()
+    for a,b in b:
+        ro[a].remove(b)
+        ri[b].remove(a)
+    return ro, ri
 
 def analyze(outgoing,incoming,roots,last,backward,booki):
 
@@ -52,7 +84,7 @@ def analyze(outgoing,incoming,roots,last,backward,booki):
         print r
         print "book",booki,"shortest",shortest    
         print "----"
-    return r
+    return r,shortest
 
     # estimate number of paths
     # estimate 
@@ -85,6 +117,7 @@ def main():
     booki = 0
     if clusters:
         outname = os.path.join(input,"all"+".dot")
+        print "generating",outname
         outfile = open(outname,"wb")
         outfile.write("digraph G {\n")
 
@@ -96,11 +129,12 @@ def main():
         booki += 1
         if not clusters:
             outname = os.path.abspath(os.path.join(input,dirname+".dot"))
+            print "generating",outname
             outfile = open(outname,"wb")
             outfile.write("digraph G {\n")
         else:
             outfile.write("subgraph cluster_%d {\n" % booki)
-
+        outfile.write("\tlabel=\"%s\"\n" % titles[booki-1])
 
         allpairs = OrderedDict()
         incoming = defaultdict(set)
@@ -123,7 +157,7 @@ def main():
                     sommer.add(i)
                 for p in re.findall("<a href=\"sect(\d+)\.htm\">",y):
                     p = int(p)
-                    allpairs[(i,p)] = True
+                    allpairs[(i,p)] = 1
                     incoming[p].add(i)
                     outgoing[i].add(p)
                     ancestors[p] |= ancestors[i]
@@ -133,9 +167,42 @@ def main():
         # one that has been visited earlier
         backward = set()
         roots = [i for i in range(1,last+1) if len(incoming[i]) == 0]
-        s = analyze(outgoing,incoming,roots,last,backward,booki)
+        s,shortest = analyze(outgoing,incoming,roots,last,backward,booki)
         allstats.append(s)
+        outgoing_dag,incoming_dag = makedag(outgoing,incoming,backward)
         # TBD print "book",booki,dirname,s
+        dg = nx.from_dict_of_lists(outgoing_dag,nx.DiGraph())
+        if nx.is_directed_acyclic_graph(dg):
+            ordered = nx.topological_sort(dg);
+            print "apply shortest",len(shortest)
+            for i in range(1,len(shortest)):
+                allpairs[(shortest[i-1],shortest[i])] = 2
+
+            # topological sort
+            cp = count_dag_paths(ordered,incoming_dag,outgoing_dag,1,last)
+            totalpaths = cp[1]
+            s["totalpaths"] = totalpaths
+            if False:
+                # Something for estimating the mandatory nodes, actually few of them 
+                necessarynodes = set([k for k,v in cp.iteritems() if v >= totalpaths])
+                necessarynodes.remove(1)
+                s["needednodes1"] = len(necessarynodes)
+                necessarynodes = set()
+                for c in outgoing[1]:
+                    totalpathsc = cp[c]
+                    necessarynodesc = set([k for k,v in cp.iteritems() if v >= totalpathsc])
+                    necessarynodes |= necessarynodesc
+                s["needednodes2"] = len(necessarynodes)        
+        else:
+            if False:
+                incoming = incoming_dag
+                outgoing = outgoing_dag
+                for a,b in backward:
+                    del allpairs[(a,b)]
+            s["totalpaths"] = 0
+            s["needednodes1"] = 0
+            s["needednodes2"] = 0
+
 
         pagedict = defaultdict(dict)
         for i in range(2,last):
@@ -173,13 +240,15 @@ def main():
             if len(ww) > 0:
                 outfile.write(" b%dp%d [%s];\n" % (booki,i,",".join(["%s=%s" % (x,y) for x,y in ww.iteritems()])))
 
-        for pfrom,pto in allpairs.keys():
-
-            # backward in story means, that if there is any path from to..from earlier
+        for k,v in allpairs.iteritems():
+            pfrom,pto = k
+            sw = {}
             if (pfrom,pto) in backward:
-                outfile.write("b%dp%d -> b%dp%d [color=red];\n" % (booki,pfrom,booki,pto));
-            else:
-                outfile.write("b%dp%d -> b%dp%d;\n" % (booki,pfrom,booki,pto))
+                sw["color"] = "red"
+            if v == 2:
+                sw["penwidth"] =3.0
+            outfile.write("b%dp%d -> b%dp%d [%s];\n" % (booki,pfrom,booki,pto,",".join(["%s=%s" % (x,y) for x,y in sw.iteritems()])))
+
         outfile.write("}\n")
 
         if not clusters:
@@ -194,9 +263,9 @@ def main():
     print "created script.sh"
     oo.close()
     if True:
-        print "%s\t%s\t%s" % ("Book","Min Path","Clustering")
+        print "\t".join(["Book","Shortest","Total Paths"])
         for i,a in enumerate(allstats):
-            print "%d\t%d\t%d" % (i+1,a["mindist"],a["clustering"]) #,a["maxdist"])
+            print "%d\t%d\t%d" % (i+1,a["mindist"],a["totalpaths"]) #,a["maxdist"])
 
 if __name__ == '__main__':
     main()
