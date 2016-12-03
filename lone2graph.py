@@ -3,6 +3,7 @@ import os,sys,re
 from collections import defaultdict, OrderedDict
 import subprocess, Queue
 import argparse
+import networkx as nx
 
 def bfs(graph, start,visited=set()):
     queue = [(start,None)]
@@ -17,12 +18,14 @@ def bfs(graph, start,visited=set()):
             yield (vertex,parent, False)
 
 def analyze(outgoing,incoming,roots,last,backward,booki):
+
+    G = nx.from_dict_of_lists(outgoing)
+    shortest = nx.shortest_path(G,1,last)
     r = dict()
     visited = set()
     minmax = dict()
     ancestors = defaultdict(set)
     distancefrompath = defaultdict(lambda: 0)
-    shortestpath = defaultdict(lambda: 0)
     for ro in roots:
         ancestors[ro] = set()
         for node,parent,isnew in bfs(outgoing,ro,visited):
@@ -34,32 +37,20 @@ def analyze(outgoing,incoming,roots,last,backward,booki):
                 ancestors[node].add(parent)
                 ancestors[node] |= ancestors[parent]
 
-    for node,parents in incoming.iteritems():
-        if len(parents) == 0:
-            shortestpath[node] = 0
-        else:
-            shortestpath[node] = min([distancefrompath[x] for x in parents])
     for parent,children in outgoing.iteritems():
         for c in children:
             if c in ancestors[parent]:
                 backward.add((parent,c))
     # then estimate for last
-    r["mindist"] = shortestpath[last]
+    r["mindist"] = len(shortest)
+    r["clustering"] = nx.average_clustering(G)
     if False:
-        out = []
-        current = 1
-        while True:
-            if len(outgoing[current]) == 0:
-                break
-            j,v = min([(x,shortestpath[x]) for x in outgoing[current]],key=lambda x: x[1])
-            current = j
-            out.append(j)
         print "----"
         print "last",last
         print "distancefrompath\n",distancefrompath
         print "shortestpath\n",shortestpath
         print r
-        print "shortest",len(out),"done:",out
+        print "book",booki,"shortest",shortest    
         print "----"
     return r
 
@@ -202,10 +193,10 @@ def main():
 
     print "created script.sh"
     oo.close()
-    if False:
-        print "%s\t%s" % ("Book","Min Path")
+    if True:
+        print "%s\t%s\t%s" % ("Book","Min Path","Clustering")
         for i,a in enumerate(allstats):
-            print "%d\t%d" % (i+1,a["mindist"]) #,a["maxdist"])
+            print "%d\t%d\t%d" % (i+1,a["mindist"],a["clustering"]) #,a["maxdist"])
 
 if __name__ == '__main__':
     main()
