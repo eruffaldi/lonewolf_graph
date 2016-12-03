@@ -51,8 +51,11 @@ def makedag(o,i,b):
 
 def analyze(outgoing,incoming,roots,last,backward,booki):
 
-    G = nx.from_dict_of_lists(outgoing)
-    shortest = nx.shortest_path(G,1,last)
+    G = nx.from_dict_of_lists(outgoing,nx.DiGraph())
+    try:
+        shortest = nx.shortest_path(G,1,last)
+    except:
+        shortest = []
     r = dict()
     visited = set()
     minmax = dict()
@@ -75,7 +78,6 @@ def analyze(outgoing,incoming,roots,last,backward,booki):
                 backward.add((parent,c))
     # then estimate for last
     r["mindist"] = len(shortest)
-    r["clustering"] = nx.average_clustering(G)
     if False:
         print "----"
         print "last",last
@@ -98,6 +100,7 @@ def main():
     parser.add_argument('--inputpath',default="/Users/eruffaldi/Downloads/en/xhtml/lw/")
     parser.add_argument('--contentlink',default="https://www.projectaon.org/en/xhtml/lw/")
     parser.add_argument('--clusters',default=0,type=int)
+    parser.add_argument('--book',default=-1,type=int)
     args = parser.parse_args()
     #<p class="choice">If you wish to use your Kai Discipline of Sixth Sense, <a href="sect141.htm">turn to 141</a>.</p>
     # files: sect#.htm
@@ -127,6 +130,8 @@ def main():
         if not os.path.isdir(fx):
             continue
         booki += 1
+        if args.book != -1 and args.book != booki:
+            continue
         if not clusters:
             outname = os.path.abspath(os.path.join(input,dirname+".dot"))
             print "generating",outname
@@ -163,20 +168,29 @@ def main():
                     ancestors[p] |= ancestors[i]
         last = i-1
 
+        if booki == 5:
+            special = [(331,373)]
+            for x,y in special:
+                incoming[y].add(x)
+                outgoing[x].add(y)
+                allpairs[(x,y)] = 1
+
         # we want to estimate if an edge is backward, that is a given page (node) goes back to another 
         # one that has been visited earlier
         backward = set()
         roots = [i for i in range(1,last+1) if len(incoming[i]) == 0]
         s,shortest = analyze(outgoing,incoming,roots,last,backward,booki)
+        s["book"] = booki
         allstats.append(s)
         outgoing_dag,incoming_dag = makedag(outgoing,incoming,backward)
+
+        print "apply shortest",len(shortest)
+        for i in range(1,len(shortest)):
+            allpairs[(shortest[i-1],shortest[i])] = 2
         # TBD print "book",booki,dirname,s
         dg = nx.from_dict_of_lists(outgoing_dag,nx.DiGraph())
         if nx.is_directed_acyclic_graph(dg):
             ordered = nx.topological_sort(dg);
-            print "apply shortest",len(shortest)
-            for i in range(1,len(shortest)):
-                allpairs[(shortest[i-1],shortest[i])] = 2
 
             # topological sort
             cp = count_dag_paths(ordered,incoming_dag,outgoing_dag,1,last)
@@ -265,7 +279,7 @@ def main():
     if True:
         print "\t".join(["Book","Shortest","Total Paths"])
         for i,a in enumerate(allstats):
-            print "%d\t%d\t%d" % (i+1,a["mindist"],a["totalpaths"]) #,a["maxdist"])
+            print "%d\t%d\t%d" % (a["book"],a["mindist"],a["totalpaths"]) #,a["maxdist"])
 
 if __name__ == '__main__':
     main()
