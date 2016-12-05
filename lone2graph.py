@@ -14,7 +14,7 @@ def count_dag_paths(ordered,incoming,outgoing,first,last):
     # paths to last
     counts = defaultdict(int)
     counts[last] = 1
-    print ordered
+    #print ordered
     for i in range(lastidx-1,-1,-1): # index
         ni = ordered[i] 
         q = 0
@@ -49,13 +49,16 @@ def makedag(o,i,b):
         ri[b].remove(a)
     return ro, ri
 
-def analyze(outgoing,incoming,roots,last,backward,booki):
-
+def analyzeshortest(outgoing,last):
     G = nx.from_dict_of_lists(outgoing,nx.DiGraph())
     try:
         shortest = nx.shortest_path(G,1,last)
     except:
         shortest = []
+    return shortest
+
+def analyze(outgoing,incoming,roots,last,backward,booki):
+
     r = dict()
     visited = set()
     minmax = dict()
@@ -76,17 +79,7 @@ def analyze(outgoing,incoming,roots,last,backward,booki):
         for c in children:
             if c in ancestors[parent]:
                 backward.add((parent,c))
-    # then estimate for last
-    r["mindist"] = len(shortest)
-    if False:
-        print "----"
-        print "last",last
-        print "distancefrompath\n",distancefrompath
-        print "shortestpath\n",shortestpath
-        print r
-        print "book",booki,"shortest",shortest    
-        print "----"
-    return r,shortest
+    return r
 
     # estimate number of paths
     # estimate 
@@ -97,7 +90,7 @@ def main():
     parser = argparse.ArgumentParser(description='Graphs for Lone Wolf')
     parser.add_argument('--outputs',default="pdf png svg")
     parser.add_argument('--outputpath',default="/Users/eruffaldi/Dropbox/Public/lonewolf/")
-    parser.add_argument('--inputpath',default="/Users/eruffaldi/Downloads/en/xhtml/lw/")
+    parser.add_argument('--inputpath',default="/Users/eruffaldi/Documents/personalfun/lonewolf/xhtml/lw/")
     parser.add_argument('--contentlink',default="https://www.projectaon.org/en/xhtml/lw/")
     parser.add_argument('--clusters',default=0,type=int)
     parser.add_argument('--book',default=-1,type=int)
@@ -148,6 +141,7 @@ def main():
         pagetype = defaultdict(set)
         pagelink = dict()   
         ancestors = defaultdict(set)
+        randomnodes = set()
         for i in range(1,500):
                 #name = int(x[4:-4])
                 name = "sect%d.htm" % i
@@ -156,10 +150,14 @@ def main():
                     break
                 pagelink[i] = name #os.path.abspath(fp)
                 y = open(fp,"rb").read()
-                if y.find("COMBAT SKILL") >= 0:
+                if y.find("COMBAT SKILL") >= 0 and y.find("ENDURANCE") >= 0:
                     pagetype[i].add("combat")
                 if y.find("Sommerswerd") >= 0:
                     sommer.add(i)
+                israndom = y.find("If the number you have picked is") >= 0 and y.find("Random") >= 0
+                if israndom:
+                    randomnodes.add(i)
+
                 for p in re.findall("<a href=\"sect(\d+)\.htm\">",y):
                     p = int(p)
                     allpairs[(i,p)] = 1
@@ -179,10 +177,21 @@ def main():
         # one that has been visited earlier
         backward = set()
         roots = [i for i in range(1,last+1) if len(incoming[i]) == 0]
-        s,shortest = analyze(outgoing,incoming,roots,last,backward,booki)
+
+
+        s = analyze(outgoing,incoming,roots,last,backward,booki)
         s["book"] = booki
+
+        outgoing_norandom = dict([(k,v) for k,v in outgoing.iteritems() if k not in randomnodes])
+        shortest = analyzeshortest(outgoing_norandom,last)
+        if len(shortest) == 0:
+            shortest = analyzeshortest(outgoing,last)
+            s["mindist"] = -len(shortest)
+        else:
+            s["mindist"] = len(shortest)
         allstats.append(s)
         outgoing_dag,incoming_dag = makedag(outgoing,incoming,backward)
+        print "shortest:"
 
         print "apply shortest",len(shortest)
         for i in range(1,len(shortest)):
@@ -261,6 +270,8 @@ def main():
                 sw["color"] = "red"
             if v == 2:
                 sw["penwidth"] =3.0
+            if pfrom in randomnodes:
+                sw["style"] = "dashed"
             outfile.write("b%dp%d -> b%dp%d [%s];\n" % (booki,pfrom,booki,pto,",".join(["%s=%s" % (x,y) for x,y in sw.iteritems()])))
 
         outfile.write("}\n")
