@@ -4,6 +4,8 @@ from collections import defaultdict, OrderedDict
 import subprocess, Queue
 import argparse
 import networkx as nx
+import matplotlib.cm
+import matplotlib.colors
 
 titles = ["Flight from the Dark","Fire on the Water","The Caverns of Kalte","The Chasm of Doom","Shadow on the Sand","The Kingdoms of Terror","Castle Death"];
 
@@ -84,6 +86,80 @@ def analyze(outgoing,incoming,roots,last,backward,booki):
     # estimate number of paths
     # estimate 
 
+def computedeathscore(incoming_dag,outgoing_dag,ordered,last,randomnodes,pagetype):
+    deadscore = dict()
+    combatprob = 0.5
+    for x in reversed(ordered):
+        w = outgoing_dag[x]
+        if x == last:
+            s = 0.0
+        elif len(w) == 0:
+            s = 1.0
+        else:
+            z = randomnodes.get(x)
+            if z is None:
+                n = len(w)
+                s = sum([deadscore[y] for y in w])/n
+            else:
+                invchoices = z["invchoices"]
+                # each has to be weighted by the number of cases
+                n = 10
+                s = sum([deadscore[y]*invchoices[y]["count"] for y in w])/n
+            if "combat" in pagetype[x]:
+                if s < combatprob:
+                    s = combatprob
+        deadscore[x] = s
+    return deadscore
+
+def extractrandom(node,text,target):
+    choices = dict()
+    invchoices = dict()
+    pa = text.split("<p class=\"choice\">")[1:]
+    for x in pa:
+        x = x.split("</p>")[0]
+        y = x.split("<a")
+        if len(y) != 2:
+            continue
+        g = re.search(r"(\d).*?(\d)",y[0])
+        gg = re.search("sect(\d+).htm",y[1])    
+        if g and gg:
+            ifrom = int(g.group(1))
+            ito = int(g.group(2))
+            jmp = int(gg.group(1))
+            for i in range(ifrom,ito+1):
+                choices[i] = jmp
+            invchoices[jmp] = dict(ifrom=ifrom,ito=ito,count=ito-ifrom+1)
+            print node,ifrom,ito,jmp
+        elif gg:
+            g = re.search(r"(\d)",y[0])            
+            if g:
+                ifrom = int(g.group(1))
+                jmp = int(gg.group(1))
+                choices[ifrom] = jmp
+                invchoices[jmp] = dict(ifrom=ifrom,ito=ifrom,count=1)
+                print node,"single",ifrom,ifrom,jmp
+            else:
+                print "random",node,"unknown",y[0],g,gg
+                return
+        else:
+            print "random",node,"unknown",y[0],g,gg
+            return
+    #<p class="choice">TEXT from-to <a href="sect110.htm"> </p>
+    if len(choices) > 0:
+        target[node] = dict(choices=choices,invchoices=invchoices)
+
+cmm = None
+scm = None
+def colormap(value,minv,maxv):
+    # colormap is green ... 
+    global cmm,scm
+    if cmm is None:
+        cmm = matplotlib.cm.get_cmap(name="cool", lut=None)
+        scm = matplotlib.cm.ScalarMappable(cmap=cmm,norm=matplotlib.colors.Normalize(vmin=minv, vmax=maxv))
+    print value
+    return scm.to_rgba(value,bytes=True)
+def color2rgbhex(rgb):
+    return "\"#%02X%02X%02X\"" % rgb[0:3]
 def main():
 
 
@@ -141,7 +217,7 @@ def main():
         pagetype = defaultdict(set)
         pagelink = dict()   
         ancestors = defaultdict(set)
-        randomnodes = set()
+        randomnodes = dict()
         for i in range(1,500):
                 #name = int(x[4:-4])
                 name = "sect%d.htm" % i
@@ -156,7 +232,7 @@ def main():
                     sommer.add(i)
                 israndom = y.find("If the number you have picked is") >= 0 and y.find("Random") >= 0
                 if israndom:
-                    randomnodes.add(i)
+                    extractrandom(i,y,randomnodes)
 
                 for p in re.findall("<a href=\"sect(\d+)\.htm\">",y):
                     p = int(p)
@@ -200,6 +276,7 @@ def main():
         dg = nx.from_dict_of_lists(outgoing_dag,nx.DiGraph())
         if nx.is_directed_acyclic_graph(dg):
             ordered = nx.topological_sort(dg);
+            #invordered = dict([(x,i) for i,x in ordered])
 
             # topological sort
             cp = count_dag_paths(ordered,incoming_dag,outgoing_dag,1,last)
@@ -216,7 +293,12 @@ def main():
                     necessarynodesc = set([k for k,v in cp.iteritems() if v >= totalpathsc])
                     necessarynodes |= necessarynodesc
                 s["needednodes2"] = len(necessarynodes)        
+
+            deadscore = computedeathscore(incoming_dag,outgoing_dag,ordered,last,randomnodes,pagetype)
+            print "allthis",list(deadscore.iteritems())
+            print deadscore[1]
         else:
+            deadscore = {}
             if False:
                 incoming = incoming_dag
                 outgoing = outgoing_dag
@@ -267,7 +349,15 @@ def main():
             pfrom,pto = k
             sw = {}
             if (pfrom,pto) in backward:
-                sw["color"] = "red"
+                sw["arrowhead"] = "inv"
+                sw["arrowtail"] = "inv"
+            else:
+                ww = deadscore.get(pto)
+                if ww is not None:
+                    ##%2x%2x%2x
+                    sw["color"] = color2rgbhex(colormap(ww,0.0,1.0))
+                    sw["label"] = "\"%0.2f\"" % ww
+
             if v == 2:
                 sw["penwidth"] =3.0
             if pfrom in randomnodes:
