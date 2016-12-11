@@ -6,7 +6,7 @@ import argparse
 import networkx as nx
 import matplotlib.cm
 import matplotlib.colors
-
+import matplotlib.pyplot as plt
 titles = ["Flight from the Dark","Fire on the Water","The Caverns of Kalte","The Chasm of Doom","Shadow on the Sand","The Kingdoms of Terror","Castle Death"];
 
 def count_dag_paths(ordered,incoming,outgoing,first,last):
@@ -192,6 +192,8 @@ def main():
         outfile = open(outname,"wb")
         outfile.write("digraph G {\n")
 
+    bookplots = []
+    bookplots_names = []
     allstats = []
     for dirname in os.listdir(input):
         fx = os.path.join(input,dirname)
@@ -309,6 +311,20 @@ def main():
             s["needednodes1"] = 0
             s["needednodes2"] = 0
 
+
+        if len(deadscore) > 0 and len(shortest) > 0:
+            ts = range(0,len(shortest))
+            bookplots.append(plt.plot(ts,[deadscore[x] for x in shortest])[0])
+            bookplots_names.append("Book %d" % booki)
+            plt.ylabel('Death probability')
+            plt.xlabel('Steps in shortest')
+            # only combat steps
+            tsc = [istep for istep in ts if "combat" in pagetype[shortest[istep]]]
+            plt.scatter(tsc,[deadscore[shortest[istep]] for istep in tsc],marker="*",c="r")
+            outpathdead = os.path.abspath(os.path.join(output,dirname+".shortest.png"))
+            plt.legend(bookplots,bookplots_names)
+            print "making",outpathdead
+            plt.savefig(outpathdead, format='png')
 
         pagedict = defaultdict(dict)
         for i in range(2,last):
