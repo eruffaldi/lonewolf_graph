@@ -129,7 +129,7 @@ def extractrandom(node,text,target):
             for i in range(ifrom,ito+1):
                 choices[i] = jmp
             invchoices[jmp] = dict(ifrom=ifrom,ito=ito,count=ito-ifrom+1)
-            print node,ifrom,ito,jmp
+            #print node,ifrom,ito,jmp
         elif gg:
             g = re.search(r"(\d)",y[0])            
             if g:
@@ -137,12 +137,12 @@ def extractrandom(node,text,target):
                 jmp = int(gg.group(1))
                 choices[ifrom] = jmp
                 invchoices[jmp] = dict(ifrom=ifrom,ito=ifrom,count=1)
-                print node,"single",ifrom,ifrom,jmp
+                #print node,"single",ifrom,ifrom,jmp
             else:
-                print "random",node,"unknown",y[0],g,gg
+                print "error random",node,"unknown",y[0],g,gg
                 return
         else:
-            print "random",node,"unknown",y[0],g,gg
+            print "error random",node,"unknown",y[0],g,gg
             return
     #<p class="choice">TEXT from-to <a href="sect110.htm"> </p>
     if len(choices) > 0:
@@ -156,7 +156,6 @@ def colormap(value,minv,maxv):
     if cmm is None:
         cmm = matplotlib.cm.get_cmap(name="cool", lut=None)
         scm = matplotlib.cm.ScalarMappable(cmap=cmm,norm=matplotlib.colors.Normalize(vmin=minv, vmax=maxv))
-    print value
     return scm.to_rgba(value,bytes=True)
 def color2rgbhex(rgb):
     return "\"#%02X%02X%02X\"" % rgb[0:3]
@@ -241,6 +240,8 @@ def main():
                     outgoing[i].add(p)
                     ancestors[p] |= ancestors[i]
         last = i-1
+
+
 
         if booki == 5:
             special = [(331,373)]
@@ -331,6 +332,10 @@ def main():
                 ww["fillcolor"] = "green"
                 ww["style"] = "filled"
             pagedict[i].update(ww)
+
+        # THE ONLY non dead end
+        if booki == 3:
+            pagedict[61]["fillcolor"] = "orange"
 
         for i in range(1,last+1):
             pagedict[i]["label"] = "\"%d\"" % i #/%d/%d\"" % (i,distancefromroot[i],maxincoming[i])
