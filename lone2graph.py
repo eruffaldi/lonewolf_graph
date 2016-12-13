@@ -86,7 +86,7 @@ def analyze(outgoing,incoming,roots,last,backward,booki):
     # estimate number of paths
     # estimate 
 
-def computedeathscore(incoming_dag,outgoing_dag,ordered,last,randomnodes,pagetype):
+def computedeathscore(booki,incoming_dag,outgoing_dag,ordered,last,randomnodes,pagetype):
     deadscore = dict()
     combatprob = 0.5
     for x in reversed(ordered):
@@ -97,56 +97,74 @@ def computedeathscore(incoming_dag,outgoing_dag,ordered,last,randomnodes,pagetyp
             s = 1.0
         else:
             z = randomnodes.get(x)
-            if z is None:
+            anynot1 = len([y for y in w if y < 1]) > 0
+            if z is None or len(z["invchoices"]) != len(w):
                 n = len(w)
                 s = sum([deadscore[y] for y in w])/n
             else:
                 invchoices = z["invchoices"]
                 # each has to be weighted by the number of cases
-                n = 10
-                s = sum([deadscore[y]*invchoices[y]["count"] for y in w])/n
+                n = z["count"]
+                print "book",booki,"node",x,"random",invchoices,"with targets",w
+                s = sum([deadscore.get(y,0)*invchoices[y]["count"] for y in w])/n
+            if x == 57:
+                print "case 57",w,"result",s,"any",anynot1
+            if anynot1 and s >= 1:
+                s = 0.99
             if "combat" in pagetype[x]:
                 if s < combatprob:
                     s = combatprob
         deadscore[x] = s
     return deadscore
 
+# book 7 / page 337 => 0-9 +3
 def extractrandom(node,text,target):
     choices = dict()
     invchoices = dict()
     pa = text.split("<p class=\"choice\">")[1:]
+    print "xx",node
     for x in pa:
         x = x.split("</p>")[0]
         y = x.split("<a")
         if len(y) != 2:
             continue
-        g = re.search(r"(\d).*?(\d)",y[0])
+        g = re.search(r"(\d+).*?(\d+)",y[0])
         gg = re.search("sect(\d+).htm",y[1])    
+        print "\txx",x      
         if g and gg:
             ifrom = int(g.group(1))
             ito = int(g.group(2))
             jmp = int(gg.group(1))
-            for i in range(ifrom,ito+1):
-                choices[i] = jmp
-            invchoices[jmp] = dict(ifrom=ifrom,ito=ito,count=ito-ifrom+1)
             #print node,ifrom,ito,jmp
         elif gg:
-            g = re.search(r"(\d)",y[0])            
+            g = re.search(r"(\d+)",y[0])     
             if g:
-                ifrom = int(g.group(1))
-                jmp = int(gg.group(1))
-                choices[ifrom] = jmp
-                invchoices[jmp] = dict(ifrom=ifrom,ito=ifrom,count=1)
-                #print node,"single",ifrom,ifrom,jmp
+                if x.find("or more") >= 0 or x.find("or higher") >= 0:
+                    ifrom = int(g.group(1))
+                    ito = 9
+                    jmp = int(gg.group(1))
+                elif x.find("or lower") >= 0 or x.find("or less") >= 0:
+                    ito = int(g.group(1))
+                    ifrom = 0
+                    jmp = int(gg.group(1))
+                else:
+                    ifrom = int(g.group(1))
+                    ito = ifrom
+                    jmp = int(gg.group(1))
             else:
-                print "error random",node,"unknown",y[0],g,gg
+                print "\t xx error random",node,"unknown",y[0],g,gg
                 return
         else:
-            print "error random",node,"unknown",y[0],g,gg
+            print "\txx error random",node,"unknown",y[0],g,gg
             return
+        print "\txx",ifrom,ito,jmp
+        for i in range(ifrom,ito+1):
+            choices[i] = jmp
+        invchoices[jmp] = dict(ifrom=ifrom,ito=ito,count=ito-ifrom+1)
+    print "result",choices
     #<p class="choice">TEXT from-to <a href="sect110.htm"> </p>
     if len(choices) > 0:
-        target[node] = dict(choices=choices,invchoices=invchoices)
+        target[node] = dict(choices=choices,invchoices=invchoices,count=len(choices))
 
 cmm = None
 scm = None
@@ -231,7 +249,7 @@ def main():
                     pagetype[i].add("combat")
                 if y.find("Sommerswerd") >= 0:
                     sommer.add(i)
-                israndom = y.find("If the number you have picked is") >= 0 and y.find("Random") >= 0
+                israndom = (y.find("If your total is") >= 0 or y.find("If the number you have picked is") >= 0) and y.find("Random") >= 0
                 if israndom:
                     extractrandom(i,y,randomnodes)
 
@@ -247,6 +265,12 @@ def main():
 
         if booki == 5:
             special = [(331,373)]
+            for x,y in special:
+                incoming[y].add(x)
+                outgoing[x].add(y)
+                allpairs[(x,y)] = 1
+        elif booki == 7:
+            special = [(100,34)]
             for x,y in special:
                 incoming[y].add(x)
                 outgoing[x].add(y)
@@ -277,6 +301,17 @@ def main():
             allpairs[(shortest[i-1],shortest[i])] = 2
         # TBD print "book",booki,dirname,s
         dg = nx.from_dict_of_lists(outgoing_dag,nx.DiGraph())
+        if not nx.is_directed_acyclic_graph(dg):
+            # special
+            if booki == 2:
+                for a,b in [(15,244),(172,64)]:
+                    outgoing_dag[a].remove(b)
+                    dg.remove_edge(a,b)
+            elif booki == 6:
+                for a,b in [(105,79)]:
+                    outgoing_dag[a].remove(b)
+                    dg.remove_edge(a,b)
+            print "cycles",list(nx.simple_cycles(dg))
         if nx.is_directed_acyclic_graph(dg):
             ordered = nx.topological_sort(dg);
             #invordered = dict([(x,i) for i,x in ordered])
@@ -297,7 +332,7 @@ def main():
                     necessarynodes |= necessarynodesc
                 s["needednodes2"] = len(necessarynodes)        
 
-            deadscore = computedeathscore(incoming_dag,outgoing_dag,ordered,last,randomnodes,pagetype)
+            deadscore = computedeathscore(booki,incoming_dag,outgoing_dag,ordered,last,randomnodes,pagetype)
             print "allthis",list(deadscore.iteritems())
             print deadscore[1]
         else:
@@ -377,7 +412,7 @@ def main():
                 if ww is not None:
                     ##%2x%2x%2x
                     sw["color"] = color2rgbhex(colormap(ww,0.0,1.0))
-                    sw["label"] = "\"%0.2f\"" % ww
+                    sw["label"] = "\"%0.3f\"" % ww
 
             if v == 2:
                 sw["penwidth"] =3.0
