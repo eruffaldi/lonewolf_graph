@@ -7,7 +7,8 @@ import networkx as nx
 import matplotlib.cm
 import matplotlib.colors
 import matplotlib.pyplot as plt
-titles = ["Flight from the Dark","Fire on the Water","The Caverns of Kalte","The Chasm of Doom","Shadow on the Sand","The Kingdoms of Terror","Castle Death"];
+import gexf
+titles = ["Flight from the Dark","Fire on the Water","The Caverns of Kalte","The Chasm of Doom","Shadow on the Sand","The Kingdoms of Terror","Castle Death","The Jungle of Horrors","The Cauldron of Fear","The Dungeons of Torgar","The Prisoners of Time","The Masters of Darkness","The Plague Lords of Ruel","The Captives of Kaag"];
 
 def count_dag_paths(ordered,incoming,outgoing,first,last):
     #reverse array from: vertex index to index
@@ -180,13 +181,15 @@ def color2rgbhex(rgb):
 def main():
 
 
-    parser = argparse.ArgumentParser(description='Graphs for Lone Wolf')
+    parser = argparse.ArgumentParser(description='Graphs for Lone Wolf by Emanuele Ruffaldi 2018')
     parser.add_argument('--outputs',default="pdf png svg")
-    parser.add_argument('--outputpath',default="/Users/eruffaldi/Dropbox/Public/lonewolf/")
-    parser.add_argument('--inputpath',default="/Users/eruffaldi/Documents/personalfun/lonewolf/xhtml/lw/")
+    parser.add_argument('--outputpath',help="path where files will be generated")
+    parser.add_argument('--inputpath',help="path containing the book files from projectaon")
     parser.add_argument('--contentlink',default="https://www.projectaon.org/en/xhtml/lw/")
-    parser.add_argument('--clusters',default=0,type=int)
-    parser.add_argument('--book',default=-1,type=int)
+    parser.add_argument('--clusters',action="store_true",help="make clusters containing all books")
+    parser.add_argument('--book',default=-1,type=int,help="book to work with, -1 means all")
+    parser.add_argument('--save-gexf',action="store_true")
+    parser.add_argument('--target',default="_blank")
     args = parser.parse_args()
     #<p class="choice">If you wish to use your Kai Discipline of Sixth Sense, <a href="sect141.htm">turn to 141</a>.</p>
     # files: sect#.htm
@@ -199,17 +202,19 @@ def main():
     output = args.outputpath
     input = args.inputpath
     link=args.contentlink
-    clusters = args.clusters != 0
+    clusters = args.clusters
     print "Cluster Mode",args.clusters
 
     oo = open("script.sh","w")
     booki = 0
+    gg = None
     if clusters:
         outname = os.path.join(input,"all"+".dot")
         print "generating",outname
         outfile = open(outname,"wb")
         outfile.write("digraph G {\n")
-
+        if args.save_gexf:
+            gg = None if not gexf else gexf.Gexf("Emanuele Ruffaldi","Lone Wolf")
     bookplots = []
     bookplots_names = []
     allstats = []
@@ -225,9 +230,17 @@ def main():
             print "generating",outname
             outfile = open(outname,"wb")
             outfile.write("digraph G {\n")
+            if args.save_gexf:
+                gg = None if gexf is None else gexf.Gexf("Emanuele Ruffaldi","Lone Wolf")
         else:
             outfile.write("subgraph cluster_%d {\n" % booki)
         outfile.write("\tlabel=\"%s\"\n" % titles[booki-1])
+
+        #https://gephi.org/gexf/format/schema.html
+        if args.save_gexf and gg is not None:
+            graph = gg.addGraph("directed","static","VI graph")
+        else:
+            graph = DummmyGraph()
 
         allpairs = OrderedDict()
         incoming = defaultdict(set)
@@ -362,10 +375,22 @@ def main():
             plt.savefig(outpathdead, format='png')
 
         pagedict = defaultdict(dict)
-        for i in range(2,last):
+        npages = dict()
+        # title, defaultValue=None, type="integer", mode="static", force_id=""
+        gat = graph.addNodeAttribute("type","","string")
+        gac = graph.addNodeAttribute("combat","false","boolean")
+        gas = graph.addNodeAttribute("Sommerswerd","false","boolean")
+        gal = graph.addNodeAttribute("url","","string")
+        #graph.addNodeAttribute("type","" ".join(pagetype[i]))
+        npages[1] = graph.addNode("1","Page-1") 
+        for i in range(2,last+1):
+            npages[i] = graph.addNode(str(i),"Page-%d" % i) 
+            if len(pagetype[i]) != 0:
+                npages[i].addAttribute(gat," ".join(pagetype[i]))
             o = outgoing[i]
             ww = dict()
             if "combat" in pagetype[i]:
+                npages[i].addAttribute(gac,"true")
                 ww["shape"] = "tripleoctagon"
                 ww["fillcolor"] = "orange"
                 ww["style"] = "filled"
@@ -374,6 +399,7 @@ def main():
                 else:
                     ww["fillcolor"] = "orange"
             else:
+                npages[i].addAttribute(gac,"false")
                 ww["shape"] = "circle"
             if len(o) == 0:
                 ww["fillcolor"] = "red"
@@ -384,14 +410,22 @@ def main():
                 ww["style"] = "filled"
             pagedict[i].update(ww)
 
+        for s in sommer:
+            npages[s].addAttribute(gas,"true")
+        for i in range(1,last+1):
+            for o in outgoing[i]:
+                # id, source, target,
+                graph.addEdge((i,o),str(i),str(o))
+
         # THE ONLY non dead end
         if booki == 3:
             pagedict[61]["fillcolor"] = "orange"
 
-        for i in range(1,last+1):
+        for i in range(1,last+1):            
             pagedict[i]["label"] = "\"%d\"" % i #/%d/%d\"" % (i,distancefromroot[i],maxincoming[i])
             pagedict[i]["URL"] = "\"%s/%s/%s\"" % (link,dirname,pagelink[i])
-            pagedict[i]["target"] = "_blank"
+            pagedict[i]["target"] = args.target
+            npages[i].addAttribute(gal,pagedict[i]["URL"])
 
         pagedict[1].update(dict(fillcolor="green",style="filled"))
         pagedict[last].update(dict(fillcolor="green",style="filled"))
@@ -425,11 +459,40 @@ def main():
         if not clusters:
             for t in outputs:
                 oo.write(" ".join(["dot", "-T" + t,outname,"-o"+os.path.join(output,dirname+"."+t)])+"\n")
+            if args.save_gexf:
+                og = open(outname[0:-4] +".gexf","wb")
+                gg.write(og)
+
+            if True:
+                outfile = os.path.join(args.outputpath,dirname+".html")
+                print ("OUTFILE",outfile)
+                oframe = open(outfile,"w")
+                oframe.write("""
+                    <script src="common.js">
+</script>
+                    <iframe src="%s.svg" width=45%% height=100%%   id="gframe" style="border:none;"></iframe>
+    <iframe src="%s/%s/sect1.htm" name="book" width=45%% height=100%% id="bframe" onLoad="changed(this.contentWindow.location);" style="border:none;"></iframe>
+                    """ % (dirname,args.contentlink,dirname))
+                oframe.close()
+
+            # close graph
+
             #subprocess.call(["dot", "-T" + t,outname,"-o"+os.path.join(output,dirname+"."+t)],shell=True)
     if clusters:
         outfile.write("}\n")
         for t in outputs:
             oo.write(" ".join(["dot", "-T" + t,outname,"-o"+os.path.join(output,dirname+"."+t)])+"\n")
+        if args.save_gexf:
+            og = open(outname[0:-4] +".gexf","wb")
+            gg.write(og)
+        if True:
+            oframe = open(os.path.join(args.outputpath,"all.html"),"w")
+            oframe.write("""
+                <iframe src="all.pdf" width=50%% height=100%% style="border:none;"></iframe>
+<iframe name="book" width=50%% height=100%% style="border:none;"></iframe>
+                """)
+            oframe.close()
+
 
     print "created script.sh"
     oo.close()
